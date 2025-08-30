@@ -18,9 +18,9 @@ import type {
 } from './schema';
 
 export class AuthService {
-  private static readonly SALT_ROUNDS = 12;
-  private static readonly ACCESS_TOKEN_EXPIRY = '15m';
-  private static readonly REFRESH_TOKEN_EXPIRY = '7d';
+  private static readonly SALT_ROUNDS = env.BCRYPT_ROUNDS;
+  private static readonly ACCESS_TOKEN_EXPIRY = env.ACCESS_TOKEN_EXPIRY;
+  private static readonly REFRESH_TOKEN_EXPIRY = env.REFRESH_TOKEN_EXPIRY;
 
   /**
    * Register a new user
@@ -46,10 +46,10 @@ export class AuthService {
 
     // Insert new user
     const result = await query<User>(
-      `INSERT INTO users (email, password_hash, timezone)
-       VALUES ($1, $2, $3)
+      `INSERT INTO users (email, password_hash, timezone, role)
+       VALUES ($1, $2, $3, $4)
        RETURNING id`,
-      [email.toLowerCase(), passwordHash, 'Europe/London']
+      [email.toLowerCase(), passwordHash, 'Europe/London', 'user']
     );
 
     if (result.rows.length === 0) {

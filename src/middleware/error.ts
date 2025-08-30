@@ -8,6 +8,7 @@ export type ErrorCode =
   | 'FORBIDDEN'
   | 'NOT_FOUND'
   | 'CONFLICT'
+  | 'TOO_MANY_REQUESTS'
   | 'INTERNAL';
 
 // Standard error shape
@@ -87,6 +88,15 @@ function normalizeError(error: unknown): ApiError {
 
     // Handle unique constraint violations
     if (pgError.code === '23505') {
+      // Handle subjects table unique constraint specifically
+      if (pgError.constraint === 'idx_subjects_user_name_unique') {
+        return {
+          code: 'CONFLICT',
+          message: 'subject name already exists',
+          details: { constraint: pgError.constraint },
+        };
+      }
+      
       return {
         code: 'CONFLICT',
         message: 'Resource already exists',
@@ -132,6 +142,7 @@ export function errorHandler(
     FORBIDDEN: 403,
     NOT_FOUND: 404,
     CONFLICT: 409,
+    TOO_MANY_REQUESTS: 429,
     INTERNAL: 500,
   };
 

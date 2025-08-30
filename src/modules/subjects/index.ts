@@ -1,2 +1,1 @@
-// Subjects module - will be implemented later
-export {};
+export { subjectsRouter } from './router';

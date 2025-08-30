@@ -581,3 +581,21 @@ components:
               minutes: { type: integer }
             required: [subject_id, minutes]
       required: [data]
+
+    SubjectsJoinReq:
+      type: object
+      properties:
+        source_subject_id: { type: string }
+        target_subject_id: { type: string }
+        delete_source: { type: boolean, default: true }
+      required: [source_subject_id, target_subject_id]
+
+    SubjectsJoinRes:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            moved_count: { type: integer }
+          required: [moved_count]
+      required: [data]

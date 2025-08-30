@@ -1,9 +1,32 @@
 import { Pool, PoolClient, QueryResult } from 'pg';
 import { env } from '../config/env';
 
+// Build connection configuration
+function buildConnectionConfig() {
+  // Prefer connection string if provided
+  if (env.POSTGRES_URL) {
+    return {
+      connectionString: env.POSTGRES_URL,
+    };
+  }
+  
+  // Otherwise use individual environment variables
+  if (!env.POSTGRES_HOST || !env.POSTGRES_DB || !env.POSTGRES_USER || !env.POSTGRES_PASSWORD) {
+    throw new Error('Database configuration incomplete. Either provide POSTGRES_URL or all individual database environment variables.');
+  }
+  
+  return {
+    host: env.POSTGRES_HOST,
+    port: parseInt(env.POSTGRES_PORT || '5432'),
+    database: env.POSTGRES_DB,
+    user: env.POSTGRES_USER,
+    password: env.POSTGRES_PASSWORD,
+  };
+}
+
 // Create database pool
 export const pool = new Pool({
-  connectionString: env.POSTGRES_URL,
+  ...buildConnectionConfig(),
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,

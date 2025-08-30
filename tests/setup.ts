@@ -8,6 +8,9 @@ import { pool } from '../src/db';
 import { setupDatabase } from '../src/db/setup';
 import { tokenStore } from '../src/modules/auth/tokenStore';
 
+// Singleton for database setup to prevent deadlocks
+let databaseSetupPromise: Promise<void> | null = null;
+
 // Load test environment variables
 dotenv.config({ path: path.resolve(__dirname, 'test.env') });
 
@@ -35,12 +38,19 @@ export function createTestClient() {
 
 // Database helpers for tests
 export async function clearDatabase(): Promise<void> {
-  // Clear all data from tables
-  await pool.query('DELETE FROM refresh_token_blacklist');
-  await pool.query('DELETE FROM users');
-  
-  // Clear token store
-  tokenStore.clear();
+  try {
+    // Clear all data from tables in reverse dependency order
+    await pool.query('DELETE FROM time_entries');
+    await pool.query('DELETE FROM subjects');
+    await pool.query('DELETE FROM refresh_token_blacklist');
+    await pool.query('DELETE FROM users');
+    
+    // Clear token store
+    tokenStore.clear();
+  } catch (error) {
+    console.error('Failed to clear database:', error);
+    throw error;
+  }
 }
 
 // Global test setup
@@ -48,9 +58,18 @@ beforeAll(async () => {
   // Set test environment
   process.env.NODE_ENV = 'test';
   
-  // Setup database schema
+  // Setup database schema only once to prevent deadlocks
+  if (!databaseSetupPromise) {
+    databaseSetupPromise = setupDatabase().catch((error) => {
+      console.error('Test database setup failed:', error);
+      databaseSetupPromise = null; // Reset so it can be retried
+      throw error;
+    });
+  }
+  
   try {
-    await setupDatabase();
+    await databaseSetupPromise;
+    console.log('Test database setup completed');
   } catch (error) {
     console.error('Test database setup failed:', error);
     throw error;

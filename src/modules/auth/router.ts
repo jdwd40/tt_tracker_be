@@ -1,18 +1,22 @@
 import { Router } from 'express';
 import { AuthController } from './controller';
+import { authRateLimit } from '../../middleware/rateLimit';
 
 const router = Router();
 
-// POST /auth/register
-router.post('/register', AuthController.register);
+// Apply rate limiting only in production
+const rateLimitMiddleware = process.env.NODE_ENV === 'production' ? authRateLimit : (req: any, res: any, next: any) => next();
 
-// POST /auth/login
-router.post('/login', AuthController.login);
+// POST /auth/register - Rate limited to prevent abuse
+router.post('/register', rateLimitMiddleware, AuthController.register);
 
-// POST /auth/refresh
-router.post('/refresh', AuthController.refresh);
+// POST /auth/login - Rate limited to prevent brute force
+router.post('/login', rateLimitMiddleware, AuthController.login);
 
-// POST /auth/logout
-router.post('/logout', AuthController.logout);
+// POST /auth/refresh - Rate limited to prevent abuse
+router.post('/refresh', rateLimitMiddleware, AuthController.refresh);
+
+// POST /auth/logout - Rate limited to prevent abuse
+router.post('/logout', rateLimitMiddleware, AuthController.logout);
 
 export default router;

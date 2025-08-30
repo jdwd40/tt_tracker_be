@@ -49,9 +49,12 @@ export interface User {
   email: string;
   password_hash: string;
   timezone: string;
+  role: UserRole;
   created_at: string;
   updated_at: string;
 }
+
+export type UserRole = 'user' | 'admin' | 'moderator';
 
 export interface RefreshTokenBlacklist {
   token_hash: string;

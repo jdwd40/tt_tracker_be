@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import { errorHandler, notFoundHandler } from './middleware/error';
 import { authRouter } from './modules/auth';
+import { timeEntriesRouter } from './modules/time-entries';
+import { subjectsRouter } from './modules/subjects';
 
 // Create Express app
 const app = express();
@@ -22,8 +24,8 @@ app.get('/healthz', (_req, res) => {
 
 // API routes
 app.use('/auth', authRouter);
-// app.use('/subjects', subjectsRouter);
-// app.use('/time-entries', timeEntriesRouter);
+app.use('/time-entries', timeEntriesRouter);
+app.use('/subjects', subjectsRouter);
 // app.use('/reports', reportsRouter);
 
 // 404 handler (must be before error handler)
