@@ -1,0 +1,118 @@
+# Time Tracker Backend Rules (Express + Postgres)
+
+## Tech & Libraries
+- Node 20+, Express, node-postgres (`pg`), Zod for validation, bcrypt or argon2 for password hashing, jsonwebtoken for JWT.
+- No ORM for v1. Use SQL migrations and parameterized queries.
+- Testing: Vitest or Jest + supertest. Always add/maintain tests with code changes.
+- Lint/format: ESLint + Prettier.
+
+## Project Structure
+- `/src/config` (env, logger)
+- `/src/db/migrations` (SQL files)
+- `/src/db` (pool, helpers)
+- `/src/modules/{auth,subjects,time-entries,reports}`
+  - `router.ts`, `controller.ts`, `service.ts`, `schema.ts`, `types.ts`
+- `/src/middleware` (auth, error)
+- `/tests/**` (route + service tests)
+- `/openapi.yaml` (single source of truth for endpoints, shapes, examples)
+
+## General Conventions
+- Controllers thin; all business logic in services; DB-only logic in repo/helpers.
+- Validation with Zod at the edge (controllers). No unvalidated input reaches services.
+- Return shapes:
+  - Success: `{ "data": <payload> }`
+  - Error: `{ "error": { "code": "BAD_REQUEST|UNAUTHORIZED|FORBIDDEN|NOT_FOUND|CONFLICT|INTERNAL", "message": "readable", "details"?: {} } }`
+- Use ISO strings for timestamps; store timestamps in UTC; interpret **dates** (YYYY-MM-DD) in the **user’s timezone** (default Europe/London) at the service layer.
+- Pagination: `?page&limit`, include `X-Total-Count` header.
+- Small diffs only, scoped to one module per edit. Update tests accordingly.
+
+## Security
+- HTTPS assumed (proxy). JWT: access + refresh. Store secrets in `.env`.
+- Hash passwords with bcrypt/argon2. Never log secrets or tokens.
+- Authorize by `user_id` row scoping on all queries.
+- Rate limit auth and write endpoints (basic middleware OK for v1).
+
+## Data Model (conceptual)
+- **User**: `id, email, password_hash, timezone="Europe/London", created_at`
+- **Subject**: `id, user_id, name (unique per user, case-insensitive), color?, created_at, updated_at`
+- **TimeEntry**: `id, user_id, subject_id, date (YYYY-MM-DD), duration_minutes INT (1..1440), notes? (<=500), created_at, updated_at`
+
+## DB & Indexes
+- Enforce subject name uniqueness per user with case-insensitive index (e.g., `lower(name)`).
+- Useful indexes:
+  - `time_entries(user_id, date)`
+  - `time_entries(user_id, subject_id, date)`
+  - `subjects(user_id, lower(name))`
+- Migrations are idempotent and reversible where possible.
+
+## Auth Endpoints
+- `POST /auth/register` → `{ email, password }` → `{ data: { user_id } }`
+- `POST /auth/login` → `{ email, password }` → `{ data: { access_token, refresh_token } }`
+- `POST /auth/refresh` → `{ refresh_token }` → `{ data: { access_token } }`
+- `POST /auth/logout` → invalidate refresh token (stateless strategy OK for v1).
+
+## Subjects Endpoints
+- `GET /subjects` → list all subjects for user, sorted by name.
+- `POST /subjects` → `{ name, color? }` (create). Enforce per-user, case-insensitive uniqueness.
+- `PUT /subjects/:id/rename` → `{ new_name }` (unique per user, case-insensitive).
+- `POST /subjects/join` → `{ source_subject_id, target_subject_id, delete_source: true }`
+  - Move all `time_entries` from source → target, then **hard delete** source.
+- (No archiving in v1. Direct delete of subjects discouraged unless after merge.)
+
+## Time Entries Endpoints
+- `POST /time-entries`
+  - Body: `{ subject_id? | subject_name?, date? (YYYY-MM-DD, defaults today in user TZ), duration_minutes (1..1440), notes? (<=500), overwrite_latest_overlap? (bool) }`
+  - Behavior:
+    - If `subject_name` does not exist for user, auto-create it.
+    - For the given `date`, if there is at least one entry:
+      - If `overwrite_latest_overlap=true`, **replace the latest entry** for that date (subject, duration, notes).
+      - Else **409 CONFLICT** with `{ latest_entry: {...}, hint: "Retry with overwrite_latest_overlap=true to replace the latest entry on this date." }`.
+    - Otherwise, create a new entry.
+- `GET /time-entries` → filters: `start`, `end`, `subject_id?`, `page`, `limit`
+- `PUT /time-entries/:id` → partial update `{ date?, subject_id?, duration_minutes?, notes? }`
+- `DELETE /time-entries/:id` → **hard delete**.
+
+## Reports Endpoints (chart-ready arrays)
+- `GET /reports/daily?start=YYYY-MM-DD&end=YYYY-MM-DD`
+  - `[{ date, subject_id, subject_name, minutes }]`
+- `GET /reports/weekly?start=YYYY-MM-DD&end=YYYY-MM-DD`
+  - ISO week starts Monday
+  - `[{ week_start, subject_id, subject_name, minutes }]`
+- `GET /reports/monthly?start=YYYY-MM-DD&end=YYYY-MM-DD`
+  - `[{ month: "YYYY-MM", subject_id, subject_name, minutes }]`
+- `GET /reports/subject-leaderboard?start=YYYY-MM-DD&end=YYYY-MM-DD&limit=10`
+  - `[{ subject_id, subject_name, minutes }]` sorted desc
+
+## Validation Rules
+- Email: RFC basic check; password: min 8 chars (configurable).
+- Subject name: 1..60 chars; case-insensitive unique per user.
+- duration_minutes: integer 1..1440.
+- notes: up to 500 chars.
+- date: YYYY-MM-DD only. Apply user timezone at the service layer for range queries.
+
+## Error Handling
+- Centralized error middleware normalizes to the error shape.
+- Include `code`, human message, and optional `details` (e.g., field errors).
+- 400 on validation, 401 on auth, 403 on ownership breach, 404 on missing id, 409 on overwrite conflict.
+
+## Tests (always)
+- Auth: register/login/refresh, bad creds, duplicate email.
+- Subjects: create/rename uniqueness, join moves entries, delete after merge.
+- Time entries: create, auto-create subject by name, 409 conflict + overwrite path, updates, deletes.
+- Reports: daily/weekly/monthly and leaderboard across ranges.
+
+## OpenAPI (ground truth)
+- Keep `/openapi.yaml` aligned with endpoints above. Include request/response examples and error shapes.
+- Use the spec to drive controllers, Zod schemas, and tests.
+
+## Performance & Ops
+- Use pooled connections; parameterized queries only.
+- Add basic health check `/healthz`.
+- Provide `npm run migrate:up` / `migrate:down` scripts.
+- Log minimal info (request id, method, path, duration). No PII in logs.
+
+## Cursor Execution Guidance
+- Work in **small steps**: migrations → db helpers → services → controllers → tests per module.
+- Do not edit multiple modules in one change unless required.
+- After each change: run tests, fix, then proceed.
+- Keep prompts explicit about target files and expected outputs.
