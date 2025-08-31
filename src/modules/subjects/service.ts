@@ -1,5 +1,4 @@
 import { pool } from '../../db';
-import { AppError } from '../../middleware/error';
 import { 
   SubjectType, 
   SubjectCreateReqType, 
@@ -40,7 +39,11 @@ export class SubjectsService {
       return result.rows[0];
     } catch (error: any) {
       if (error.code === '23505' && error.constraint === 'idx_subjects_user_name_unique') {
-        throw new AppError('CONFLICT', 'subject name already exists');
+        throw {
+          httpStatus: 409,
+          code: 'CONFLICT',
+          message: 'subject name already exists'
+        };
       }
       throw error;
     }
@@ -59,7 +62,11 @@ export class SubjectsService {
     const result = await pool.query(query, [subjectId, userId]);
     
     if (result.rows.length === 0) {
-      throw new AppError('NOT_FOUND', 'subject not found');
+      throw {
+        httpStatus: 404,
+        code: 'NOT_FOUND',
+        message: 'subject not found'
+      };
     }
     
     return result.rows[0];
@@ -85,13 +92,21 @@ export class SubjectsService {
       const result = await pool.query(query, [new_name, subjectId, userId]);
       
       if (result.rows.length === 0) {
-        throw new AppError('NOT_FOUND', 'subject not found');
+        throw {
+          httpStatus: 404,
+          code: 'NOT_FOUND',
+          message: 'subject not found'
+        };
       }
       
       return result.rows[0];
     } catch (error: any) {
       if (error.code === '23505' && error.constraint === 'idx_subjects_user_name_unique') {
-        throw new AppError('CONFLICT', 'subject name already exists');
+        throw {
+          httpStatus: 409,
+          code: 'CONFLICT',
+          message: 'subject name already exists'
+        };
       }
       throw error;
     }
@@ -100,29 +115,42 @@ export class SubjectsService {
   /**
    * Join (merge) subjects by moving time entries and optionally deleting source
    */
-  async joinSubjects(userId: string, data: SubjectsJoinReqType): Promise<{ moved_count: number; target_subject_id: string }> {
+  async joinSubjects(userId: string, data: SubjectsJoinReqType): Promise<any> {
     const { source_subject_id, target_subject_id, delete_source } = data;
     
     // Validate that source and target are different
     if (source_subject_id === target_subject_id) {
-      throw new AppError('BAD_REQUEST', 'source and target cannot be the same');
+      throw {
+        httpStatus: 400,
+        code: 'BAD_REQUEST',
+        message: 'source and target cannot be the same'
+      };
     }
     
-    // Validate that both subjects exist and belong to the user
+    // Check if source subject exists and belongs to user
     try {
       await this.getSubjectById(userId, source_subject_id);
     } catch (error) {
-      if (error instanceof AppError && error.code === 'NOT_FOUND') {
-        throw new AppError('NOT_FOUND', 'source subject not found');
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'NOT_FOUND') {
+        throw {
+          httpStatus: 404,
+          code: 'NOT_FOUND',
+          message: 'source subject not found'
+        };
       }
       throw error;
     }
     
+    // Check if target subject exists and belongs to user
     try {
       await this.getSubjectById(userId, target_subject_id);
     } catch (error) {
-      if (error instanceof AppError && error.code === 'NOT_FOUND') {
-        throw new AppError('NOT_FOUND', 'target subject not found');
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'NOT_FOUND') {
+        throw {
+          httpStatus: 404,
+          code: 'NOT_FOUND',
+          message: 'target subject not found'
+        };
       }
       throw error;
     }

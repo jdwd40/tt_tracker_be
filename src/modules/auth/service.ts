@@ -3,7 +3,6 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { query } from '../../db';
 import { env } from '../../config/env';
-import { AppError } from '../../middleware/error';
 import { tokenStore } from './tokenStore';
 import type {
   User,
@@ -35,10 +34,11 @@ export class AuthService {
     );
 
     if (existingUser.rows.length > 0) {
-      throw new AppError(
-        'CONFLICT',
-        'User with this email already exists'
-      );
+      throw {
+        httpStatus: 409,
+        code: 'CONFLICT',
+        message: 'User with this email already exists'
+      };
     }
 
     // Hash password
@@ -53,12 +53,20 @@ export class AuthService {
     );
 
     if (result.rows.length === 0) {
-      throw new AppError('INTERNAL', 'Failed to create user');
+      throw {
+        httpStatus: 500,
+        code: 'INTERNAL',
+        message: 'Failed to create user'
+      };
     }
 
     const user = result.rows[0];
     if (!user) {
-      throw new AppError('INTERNAL', 'Failed to create user');
+      throw {
+        httpStatus: 500,
+        code: 'INTERNAL',
+        message: 'Failed to create user'
+      };
     }
 
     return { user_id: user.id };
@@ -80,27 +88,30 @@ export class AuthService {
     );
 
     if (result.rows.length === 0) {
-      throw new AppError(
-        'UNAUTHORIZED',
-        'invalid credentials'
-      );
+      throw {
+        httpStatus: 401,
+        code: 'UNAUTHORIZED',
+        message: 'invalid credentials'
+      };
     }
 
     const user = result.rows[0];
     if (!user) {
-      throw new AppError(
-        'UNAUTHORIZED',
-        'invalid credentials'
-      );
+      throw {
+        httpStatus: 401,
+        code: 'UNAUTHORIZED',
+        message: 'invalid credentials'
+      };
     }
 
     // Verify password
     const isPasswordValid = await bcrypt.compare(password, user.password_hash);
     if (!isPasswordValid) {
-      throw new AppError(
-        'UNAUTHORIZED',
-        'invalid credentials'
-      );
+      throw {
+        httpStatus: 401,
+        code: 'UNAUTHORIZED',
+        message: 'invalid credentials'
+      };
     }
 
     // Generate tokens
@@ -128,10 +139,11 @@ export class AuthService {
 
       // Check if token exists in store
       if (!tokenStore.hasToken(refresh_token)) {
-        throw new AppError(
-          'UNAUTHORIZED',
-          'invalid refresh token'
-        );
+        throw {
+          httpStatus: 401,
+          code: 'UNAUTHORIZED',
+          message: 'invalid refresh token'
+        };
       }
 
       // Get user to generate new access token
@@ -141,30 +153,43 @@ export class AuthService {
       );
 
       if (userResult.rows.length === 0) {
-        throw new AppError(
-          'UNAUTHORIZED',
-          'invalid refresh token'
-        );
+        throw {
+          httpStatus: 401,
+          code: 'UNAUTHORIZED',
+          message: 'invalid refresh token'
+        };
       }
 
       const user = userResult.rows[0];
       if (!user) {
-        throw new AppError(
-          'UNAUTHORIZED',
-          'invalid refresh token'
-        );
+        throw {
+          httpStatus: 401,
+          code: 'UNAUTHORIZED',
+          message: 'invalid refresh token'
+        };
       }
       const accessToken = this.generateAccessToken(user);
 
       return { access_token: accessToken };
     } catch (error) {
-      if (error instanceof AppError) {
+      // Handle JWT errors specifically
+      if (error instanceof jwt.JsonWebTokenError || error instanceof jwt.TokenExpiredError) {
+        throw {
+          httpStatus: 401,
+          code: 'UNAUTHORIZED',
+          message: 'invalid refresh token'
+        };
+      }
+      // Re-throw AppError-like objects
+      if (error && typeof error === 'object' && 'httpStatus' in error && 'code' in error) {
         throw error;
       }
-      throw new AppError(
-        'UNAUTHORIZED',
-        'invalid refresh token'
-      );
+      // Handle any other errors
+      throw {
+        httpStatus: 401,
+        code: 'UNAUTHORIZED',
+        message: 'invalid refresh token'
+      };
     }
   }
 
@@ -184,10 +209,11 @@ export class AuthService {
       return { message: 'Successfully logged out' };
     } catch (error) {
       // For invalid tokens, return 401 error
-      throw new AppError(
-        'UNAUTHORIZED',
-        'invalid refresh token'
-      );
+      throw {
+        httpStatus: 401,
+        code: 'UNAUTHORIZED',
+        message: 'invalid refresh token'
+      };
     }
   }
 

@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { errorHandler, notFoundHandler } from './middleware/error';
+import { errorMiddleware, notFoundHandler } from './middleware/error';
 import { authRouter } from './modules/auth';
 import { timeEntriesRouter } from './modules/time-entries';
 import { subjectsRouter } from './modules/subjects';
@@ -32,6 +32,6 @@ app.use('/subjects', subjectsRouter);
 app.use(notFoundHandler);
 
 // Error handling middleware (must be last)
-app.use(errorHandler);
+app.use(errorMiddleware);
 
 export default app;

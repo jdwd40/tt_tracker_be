@@ -3,9 +3,8 @@ import request from 'supertest';
 import express from 'express';
 import { ZodError } from 'zod';
 import {
-  errorHandler,
+  errorMiddleware,
   notFoundHandler,
-  AppError,
 } from '../src/middleware/error';
 
 // Create a minimal test app
@@ -31,7 +30,12 @@ testApp.get('/zod-error', (_req, res, next) => {
 });
 
 testApp.get('/app-error', (_req, res, next) => {
-  const error = new AppError('BAD_REQUEST', 'Test error', { field: 'test' });
+  const error = {
+    httpStatus: 400,
+    code: 'BAD_REQUEST',
+    message: 'Test error',
+    details: { field: 'test' }
+  };
   next(error);
 });
 
@@ -43,7 +47,7 @@ testApp.get('/unknown-error', (_req, res, next) => {
 testApp.use(notFoundHandler);
 
 // Error handler
-testApp.use(errorHandler);
+testApp.use(errorMiddleware);
 
 describe('Error Handler', () => {
   it('should handle Zod validation errors', async () => {
@@ -53,7 +57,7 @@ describe('Error Handler', () => {
     expect(response.body).toMatchObject({
       error: {
         code: 'BAD_REQUEST',
-        message: 'Validation failed',
+        message: 'Validation failed for fields: field',
         details: {
           fields: [
             {

@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env';
-import { AppError } from './error';
 import type { AccessTokenPayload, User } from '../modules/auth/types';
 import { query } from '../db';
 
@@ -29,10 +28,11 @@ export const authenticateToken = async (
     const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
     if (!token) {
-      throw new AppError(
-        'UNAUTHORIZED',
-        'Access token is required'
-      );
+      throw {
+        httpStatus: 401,
+        code: 'UNAUTHORIZED',
+        message: 'Access token is required'
+      };
     }
 
     // Verify the token
@@ -40,10 +40,11 @@ export const authenticateToken = async (
 
     // Validate token type
     if (payload.type !== 'access') {
-      throw new AppError(
-        'UNAUTHORIZED',
-        'Invalid token type'
-      );
+      throw {
+        httpStatus: 401,
+        code: 'UNAUTHORIZED',
+        message: 'Invalid token type'
+      };
     }
 
     // Get user from database to ensure they still exist
@@ -53,18 +54,20 @@ export const authenticateToken = async (
     );
 
     if (userResult.rows.length === 0) {
-      throw new AppError(
-        'UNAUTHORIZED',
-        'User not found'
-      );
+      throw {
+        httpStatus: 401,
+        code: 'UNAUTHORIZED',
+        message: 'User not found'
+      };
     }
 
     const user = userResult.rows[0];
     if (!user) {
-      throw new AppError(
-        'UNAUTHORIZED',
-        'User not found'
-      );
+      throw {
+        httpStatus: 401,
+        code: 'UNAUTHORIZED',
+        message: 'User not found'
+      };
     }
 
     // Add user to request object
@@ -72,37 +75,43 @@ export const authenticateToken = async (
 
     next();
   } catch (error) {
-    if (error instanceof AppError) {
+    // Use duck-typing for AppError check
+    if (error && typeof error === 'object' && 'httpStatus' in error && 'code' in error) {
       next(error);
     } else if (error instanceof jwt.JsonWebTokenError) {
       // Check if it's a malformed token (like empty or invalid format)
       if (error.message.includes('jwt malformed') || error.message.includes('jwt must be provided')) {
-        next(new AppError(
-          'UNAUTHORIZED',
-          'Access token is required'
-        ));
+        next({
+          httpStatus: 401,
+          code: 'UNAUTHORIZED',
+          message: 'Access token is required'
+        });
       } else {
-        next(new AppError(
-          'UNAUTHORIZED',
-          'Invalid access token'
-        ));
+        next({
+          httpStatus: 401,
+          code: 'UNAUTHORIZED',
+          message: 'Invalid access token'
+        });
       }
     } else if (error instanceof jwt.TokenExpiredError) {
-      next(new AppError(
-        'UNAUTHORIZED',
-        'Access token has expired'
-      ));
+      next({
+        httpStatus: 401,
+        code: 'UNAUTHORIZED',
+        message: 'Access token has expired'
+      });
     } else if (error instanceof SyntaxError) {
       // Handle malformed JWT tokens that cause JSON parsing errors
-      next(new AppError(
-        'UNAUTHORIZED',
-        'Invalid access token'
-      ));
+      next({
+        httpStatus: 401,
+        code: 'UNAUTHORIZED',
+        message: 'Invalid access token'
+      });
     } else {
-      next(new AppError(
-        'INTERNAL',
-        'Authentication failed'
-      ));
+      next({
+        httpStatus: 500,
+        code: 'INTERNAL',
+        message: 'Authentication failed'
+      });
     }
   }
 };
@@ -159,19 +168,21 @@ export const optionalAuth = async (
 export const requireRole = (requiredRole: string) => {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {
-      next(new AppError(
-        'UNAUTHORIZED',
-        'Authentication required'
-      ));
+      next({
+        httpStatus: 401,
+        code: 'UNAUTHORIZED',
+        message: 'Authentication required'
+      });
       return;
     }
 
     // Check if user has the required role
     if (req.user.role !== requiredRole) {
-      next(new AppError(
-        'FORBIDDEN',
-        'Insufficient permissions'
-      ));
+      next({
+        httpStatus: 403,
+        code: 'FORBIDDEN',
+        message: `Role '${requiredRole}' is required`
+      });
       return;
     }
 

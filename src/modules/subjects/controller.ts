@@ -5,7 +5,6 @@ import {
   SubjectRenameReq, 
   SubjectsJoinReq 
 } from './schema';
-import { AppError } from '../../middleware/error';
 
 export class SubjectsController {
   private subjectsService: SubjectsService;
@@ -39,7 +38,11 @@ export class SubjectsController {
       const validationResult = SubjectCreateReq.safeParse(req.body);
       if (!validationResult.success) {
         const errors = validationResult.error.errors.map(err => err.message).join(', ');
-        throw new AppError('BAD_REQUEST', errors);
+        throw {
+          httpStatus: 400,
+          code: 'BAD_REQUEST',
+          message: errors
+        };
       }
 
       const userId = req.user!.id;
@@ -62,7 +65,11 @@ export class SubjectsController {
     try {
       const { id } = req.params;
       if (!id) {
-        throw new AppError('BAD_REQUEST', 'Subject ID is required');
+        throw {
+          httpStatus: 400,
+          code: 'BAD_REQUEST',
+          message: 'Subject ID is required'
+        };
       }
       const userId = req.user!.id;
 
@@ -70,7 +77,11 @@ export class SubjectsController {
       const validationResult = SubjectRenameReq.safeParse(req.body);
       if (!validationResult.success) {
         const errors = validationResult.error.errors.map(err => err.message).join(', ');
-        throw new AppError('BAD_REQUEST', errors);
+        throw {
+          httpStatus: 400,
+          code: 'BAD_REQUEST',
+          message: errors
+        };
       }
 
       const renameData = validationResult.data;
@@ -93,7 +104,11 @@ export class SubjectsController {
       const validationResult = SubjectsJoinReq.safeParse(req.body);
       if (!validationResult.success) {
         const errors = validationResult.error.errors.map(err => err.message).join(', ');
-        throw new AppError('BAD_REQUEST', errors);
+        throw {
+          httpStatus: 400,
+          code: 'BAD_REQUEST',
+          message: errors
+        };
       }
 
       const userId = req.user!.id;

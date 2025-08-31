@@ -1,156 +1,70 @@
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
 
-// Error codes as defined in the backend rules
-export type ErrorCode =
-  | 'BAD_REQUEST'
-  | 'UNAUTHORIZED'
-  | 'FORBIDDEN'
-  | 'NOT_FOUND'
-  | 'CONFLICT'
-  | 'TOO_MANY_REQUESTS'
-  | 'INTERNAL';
+type AppErrorLike = {
+  httpStatus?: number;
+  statusCode?: number;
+  status?: number;
+  code?: string;
+  message?: string;
+  details?: Record<string, any>;
+};
 
-// Standard error shape
-export interface ApiError {
-  code: ErrorCode;
-  message: string;
-  details?: Record<string, any> | undefined;
-}
+const getStatus = (err: AppErrorLike) =>
+  typeof err.httpStatus === 'number' ? err.httpStatus
+  : typeof err.statusCode === 'number' ? err.statusCode
+  : typeof err.status === 'number' ? err.status
+  : undefined;
 
-// Custom error class
-export class AppError extends Error {
-  public readonly code: ErrorCode;
-  public readonly details?: Record<string, any> | undefined;
+const isAppError = (err: any): err is AppErrorLike =>
+  !!err && typeof getStatus(err) === 'number' && typeof err.code === 'string' && typeof err.message === 'string';
 
-  constructor(
-    code: ErrorCode,
-    message: string,
-    details?: Record<string, any> | undefined
-  ) {
-    super(message);
-    this.code = code;
-    this.details = details;
-    this.name = 'AppError';
-  }
-}
-
-// Error normalizer
-function normalizeError(error: unknown): ApiError {
-  // Handle Zod validation errors
-  if (error instanceof ZodError) {
-    const firstError = error.errors[0];
-    if (firstError) {
-      const message = firstError.message.toLowerCase();
-      const fieldPath = firstError.path.join('.');
-      
-      return {
-        code: 'BAD_REQUEST',
-        message: message.includes('email') || fieldPath === 'email' ? 'Invalid email format' : 
-                 message.includes('password') || fieldPath === 'password' ? 'password must be at least 8 characters long' :
-                 message.includes('refresh_token') || fieldPath === 'refresh_token' ? 'refresh_token is required' :
-                 'Validation failed',
-        details: {
-          fields: error.errors.map((err) => ({
-            path: err.path.join('.'),
-            message: err.message,
-          })),
-        },
-      };
-    }
+export function errorMiddleware(err: any, _req: Request, res: Response, _next: NextFunction) {
+  // 1) Zod → 400 (standardized)
+  if (err instanceof ZodError) {
+    const fields = err.issues.map((i) => ({
+      path: i.path.join('.'),
+      message: i.message,
+    }));
     
-    return {
-      code: 'BAD_REQUEST',
-      message: error.errors.some(err => err.message.toLowerCase().includes('refresh_token') || err.path.join('.') === 'refresh_token') 
-        ? 'refresh_token is required' 
-        : 'Validation failed',
-      details: {
-        fields: error.errors.map((err) => ({
-          path: err.path.join('.'),
-          message: err.message,
-        })),
-      },
-    };
-  }
-
-  // Handle our custom AppError
-  if (error instanceof AppError) {
-    return {
-      code: error.code,
-      message: error.message,
-      details: error.details,
-    };
-  }
-
-  // Handle PostgreSQL errors
-  if (error && typeof error === 'object' && 'code' in error) {
-    const pgError = error as any;
-
-    // Handle unique constraint violations
-    if (pgError.code === '23505') {
-      // Handle subjects table unique constraint specifically
-      if (pgError.constraint === 'idx_subjects_user_name_unique') {
-        return {
-          code: 'CONFLICT',
-          message: 'subject name already exists',
-          details: { constraint: pgError.constraint },
-        };
-      }
-      
-      return {
-        code: 'CONFLICT',
-        message: 'Resource already exists',
-        details: { constraint: pgError.constraint },
-      };
-    }
-
-    // Handle foreign key violations
-    if (pgError.code === '23503') {
-      return {
+    // Create a more descriptive message that includes field names
+    const fieldNames = fields.map(f => f.path).join(', ');
+    const message = fieldNames ? `Validation failed for fields: ${fieldNames}` : 'Validation failed';
+    
+    return res.status(400).json({
+      error: {
         code: 'BAD_REQUEST',
-        message: 'Referenced resource does not exist',
-        details: { constraint: pgError.constraint },
-      };
+        message,
+        details: { fields },
+      },
+    });
+  }
+
+  // 2) PG unique violation (safety net for time_entries user+date)
+  if (err?.code === '23505' && err?.constraint === 'idx_time_entries_user_date_unique') {
+    return res.status(409).json({
+      error: { code: 'CONFLICT', message: 'Latest entry exists on this date' },
+    });
+  }
+
+  // 3) AppError (duck-typed, not instanceof)
+  if (isAppError(err)) {
+    const status = getStatus(err)!;
+    const { code, message, details } = err;
+    const body: any = { error: { code, message } };
+    if (details) {
+      if (details.latest_entry) body.latest_entry = details.latest_entry;
+      if (details.hint) body.hint = details.hint;
+      const { latest_entry, hint, ...rest } = details;
+      if (Object.keys(rest).length) body.error.details = rest;
     }
+    return res.status(status).json(body);
   }
 
-  // Default internal error
-  return {
-    code: 'INTERNAL',
-    message: 'Internal server error',
-  };
-}
-
-// Error middleware
-export function errorHandler(
-  error: unknown,
-  _req: Request,
-  res: Response,
-  _next: NextFunction
-): void {
-  const normalizedError = normalizeError(error);
-
-  // Log error in development
-  if (process.env['NODE_ENV'] === 'development') {
-    console.error('Error:', error);
-  }
-
-  // Map error codes to HTTP status codes
-  const statusCodeMap: Record<ErrorCode, number> = {
-    BAD_REQUEST: 400,
-    UNAUTHORIZED: 401,
-    FORBIDDEN: 403,
-    NOT_FOUND: 404,
-    CONFLICT: 409,
-    TOO_MANY_REQUESTS: 429,
-    INTERNAL: 500,
-  };
-
-  const statusCode = statusCodeMap[normalizedError.code];
-
-  res.status(statusCode).json({
-    error: normalizedError,
-  });
+  // 4) Unknown → 500
+  // eslint-disable-next-line no-console
+  console.error('Unhandled error:', { name: err?.name, code: err?.code, message: err?.message });
+  return res.status(500).json({ error: { code: 'INTERNAL', message: 'Internal server error' } });
 }
 
 // 404 handler

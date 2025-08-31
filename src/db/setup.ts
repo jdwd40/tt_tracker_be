@@ -17,7 +17,8 @@ export async function setupDatabase(): Promise<void> {
         '001_create_users_table.sql',
         '002_add_role_column.sql', 
         '003_create_subjects_table.sql',
-        '004_create_time_entries_table.sql'
+        '004_create_time_entries_table.sql',
+        '005_update_time_entries_table.sql'
       ];
       
       // Execute each migration
@@ -28,9 +29,14 @@ export async function setupDatabase(): Promise<void> {
         try {
           await client.query(migrationSQL);
           console.log(`Executed migration: ${migration}`);
-        } catch (error) {
-          console.error(`Failed to execute migration ${migration}:`, error);
-          throw error;
+        } catch (error: any) {
+          // Handle case where constraint/index already exists (common in test environments)
+          if (error.code === '42P07' && error.message.includes('already exists')) {
+            console.log(`Migration ${migration} already applied, skipping`);
+          } else {
+            console.error(`Failed to execute migration ${migration}:`, error);
+            throw error;
+          }
         }
       }
       
