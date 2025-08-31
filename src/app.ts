@@ -4,6 +4,7 @@ import { errorMiddleware, notFoundHandler } from './middleware/error';
 import { authRouter } from './modules/auth';
 import { timeEntriesRouter } from './modules/time-entries';
 import { subjectsRouter } from './modules/subjects';
+import { reportsRouter } from './modules/reports';
 
 // Create Express app
 const app = express();
@@ -26,7 +27,7 @@ app.get('/healthz', (_req, res) => {
 app.use('/auth', authRouter);
 app.use('/time-entries', timeEntriesRouter);
 app.use('/subjects', subjectsRouter);
-// app.use('/reports', reportsRouter);
+app.use('/reports', reportsRouter);
 
 // 404 handler (must be before error handler)
 app.use(notFoundHandler);

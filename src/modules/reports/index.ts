@@ -1,2 +1,1 @@
-// Reports module - will be implemented later
-export {};
+export { default as reportsRouter } from './router';
